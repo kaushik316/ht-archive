@@ -2,6 +2,9 @@ from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
 from healthcheck import HealthCheck, EnvironmentDump
 from models import *
+import requests 
+import json
+import re
 
 
 app = Flask(__name__)
@@ -11,7 +14,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
-# wrap the flask app and give a heathcheck url
+# wrap the flask app and give a heathcheck url to make sure DB is ok
 health = HealthCheck(app, "/healthcheck")
 
 def health_database_status():
@@ -25,7 +28,7 @@ def health_database_status():
         output = str(e)
         is_database_working = False
 
-    print output
+    print (output)
     return is_database_working, output
 
 
@@ -37,16 +40,28 @@ def test():
 	return jsonify({'message': 'It works!'})
 
 
+# Backpagecontent table API endpoints with integer params and text search - returns title, body, postid
 @app.route('/api/backpage/content/<int:backpage_content_id>', methods=['GET'])
 def get_content(backpage_content_id):
     contents = (Backpagecontent.query.filter_by(id=backpage_content_id).all())
 
     return jsonify({'data': [
-        dict(id=c.id, postId=c.backpagepostid, title=c.title)
+        dict(id=c.id, postId=c.backpagepostid, title=c.title, number=phonenumber.number)
         for c in contents
     ]})
 
 
+@app.route('/api/backpage/content/q=<search>', methods=['GET'])
+def get_search_results(search):
+    contents = (Backpagecontent.query.filter(Backpagecontent.title.contains(search)).all())
+
+    return jsonify({'data': [
+        dict(id=c.id, postId=c.backpagepostid, title=c.title)
+        for c in contents if re.search(r'\b' + search + r'\b', c.title) 
+    ]})
+
+
+# Backpagesite table endpoints - returns all cities in table
 @app.route('/api/backpage/cities/', methods=['GET'])
 def get_all_cities():
     cities = (Backpagesite.query.all())
@@ -59,6 +74,18 @@ def get_all_cities():
     ]})
 
 
+@app.route('/api/backpage/cities/q=<testsearch>', methods=['GET'])
+def search(testsearch):
+    cities = (Backpagesite.query.all())
+    citynames = [c.name for c in cities]
+
+    return jsonify({'data': [
+        dict(id=c.id, city=c.name)
+        for c in cities if testsearch in c.name
+    ]})
+
+
+# Backpagephone table endpoints - returns phone numbers and postids 
 @app.route('/api/backpage/phone/', methods=['GET'])
 def get_all_numbers():
     numbers = (Backpagephone.query.all())
@@ -83,6 +110,7 @@ def getid_from_number(number):
     return jsonify({'backpagepost_ids': [i.backpagepostid for i in ids]})
 
 
+# Backpageemail endpoints - returrns emails and post ids
 @app.route('/api/backpage/email/<int:backpagepost_id>', methods=['GET'])
 def get_email(backpagepost_id):
     emails = (Backpageemail.query.filter_by(backpagepostid=backpagepost_id).all())
@@ -97,6 +125,13 @@ def getid_from_mail(email):
     return jsonify({'backpagepost_ids': [i.backpagepostid for i in ids]})
 
 
+# Backpagepost, Backpagephone and Backpagecontent tables joined at this endpoint
+@app.route('/api/backpage/<int:backpagepost_id>/title', methods=['GET'])
+def get_title_withID(backpagepost_id):
+    numbers = (Backpagephone.query.filter_by(backpagepostid=backpagepost_id).all())
+
+    # import pdb; pdb.set_trace()
+    return jsonify({'numbers': [content.title for n in numbers for content in n.backpagepost.content.all()]})
 
 
 
